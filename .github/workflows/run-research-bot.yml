@@ -12,18 +12,32 @@ jobs:
 
     steps:
 
-      - name: checkout
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: setup python
+
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
-      - name: install dependencies
+
+      - name: Install dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: run bot
+
+      - name: Run research bot
         run: |
           python trading_research_bot.py
+
+
+      # Guarda los archivos generados por el bot
+      - name: Upload research logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: research-results
+          path: |
+            run_log.csv
+            metrics_report.txt
+            quant_research_report.txt
