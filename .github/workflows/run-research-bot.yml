@@ -5,39 +5,41 @@ on:
   schedule:
     - cron: "*/5 * * * *"
 
+concurrency:
+  group: research-bot
+  cancel-in-progress: true
+
 jobs:
   run-bot:
 
     runs-on: ubuntu-latest
+    timeout-minutes: 4
 
     steps:
 
       - name: Checkout repository
-        uses: actions/checkout@v3
-
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-
+          cache: pip
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-
 
       - name: Run research bot
         run: |
           python trading_research_bot.py
 
+      - name: Commit updated simulation state
+        run: |
+          git config --global user.name "research-bot"
+          git config --global user.email "bot@users.noreply.github.com"
 
-      # Guarda los archivos generados por el bot
-      - name: Upload research logs
-        uses: actions/upload-artifact@v3
-        with:
-          name: research-results
-          path: |
-            run_log.csv
-            metrics_report.txt
-            quant_research_report.txt
+          git add portfolio_state.json trades_log.csv metrics_report.txt || true
+          git commit -m "update simulation state" || echo "no changes"
+          git push
