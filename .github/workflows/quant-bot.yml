@@ -12,24 +12,26 @@ jobs:
 
     steps:
 
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.11"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
 
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install -r quant-bot-actions/requirements.txt
 
-    - name: Run bot
-      run: |
-        python -m quant_bot.main
+      - name: Run bot
+        working-directory: quant-bot-actions
+        run: |
+          python -m quant_bot.main
 
-    - name: Upload reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: quant-bot-reports
-        path: runtime/
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: quant-bot-reports
+          path: quant-bot-actions/runtime/
