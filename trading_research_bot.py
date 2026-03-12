@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import time
 import re
+import json
+import os
 from datetime import datetime
 
 ############################
@@ -13,19 +15,16 @@ INITIAL_CAPITAL = 1000
 EMA_PERIOD = 20
 DEV_THRESHOLD = 0.003
 LOOKBACK = 500
+
 REPORT_FILE = "quant_research_report.txt"
 
-UNIVERSE = "TOP3"  
-# options:
-# TOP3
-# TOP10
-# TOP20
-# TOP30
-# TOP40
-# TOP50
+STATE_FILE = "portfolio_state.json"
+TRADES_FILE = "trades_log.csv"
+METRICS_FILE = "metrics_report.txt"
+
+UNIVERSE = "TOP3"
 
 LOOP_INTERVAL = 60
-
 
 ############################
 # LOAD STRATEGIES
@@ -39,8 +38,11 @@ def load_strategies(report_file):
 
     with open(report_file) as f:
         for line in f:
+
             m = re.match(pattern, line.strip())
+
             if m:
+
                 symbol, tf, accum, tp, sl, trades, winrate, pf, expectancy, sharpe, dd, cap, edge = m.groups()
 
                 rows.append({
@@ -62,25 +64,6 @@ def load_strategies(report_file):
 
     return df.head(20).to_dict("records")
 
-
-############################
-# MARKET UNIVERSE
-############################
-
-def market_universe():
-
-    top = {
-        "TOP3": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
-        "TOP10": [],
-        "TOP20": [],
-        "TOP30": [],
-        "TOP40": [],
-        "TOP50": []
-    }
-
-    return top[UNIVERSE]
-
-
 ############################
 # SCANNER
 ############################
@@ -90,7 +73,6 @@ class Scanner:
     def __init__(self):
 
         self.exchange = ccxt.kucoin({'enableRateLimit': True})
-        self.cache = {}
 
     def fetch(self, symbol):
 
@@ -145,7 +127,6 @@ class Scanner:
 
         return df
 
-
 ############################
 # PORTFOLIO
 ############################
@@ -161,7 +142,7 @@ class Portfolio:
 
     def size(self):
 
-        return self.capital / len(self.strategies)
+        return self.capital / max(len(self.strategies),1)
 
     def open(self, symbol, side, price, tp, sl):
 
@@ -174,9 +155,9 @@ class Portfolio:
             "side": side,
             "entry": price,
             "size": size,
-            "tp": price * (1 + tp) if side==1 else price * (1 - tp),
-            "sl": price * (1 - sl) if side==1 else price * (1 + sl),
-            "open": datetime.utcnow(),
+            "tp": price*(1+tp) if side==1 else price*(1-tp),
+            "sl": price*(1-sl) if side==1 else price*(1+sl),
+            "open": datetime.utcnow().isoformat(),
             "mae":0,
             "mfe":0
         }
@@ -212,13 +193,38 @@ class Portfolio:
                 "mae":p["mae"],
                 "mfe":p["mfe"],
                 "open":p["open"],
-                "close":datetime.utcnow()
+                "close":datetime.utcnow().isoformat()
             }
 
             self.trade_log.append(trade)
 
             del self.positions[symbol]
 
+############################
+# STATE PERSISTENCE
+############################
+
+def save_state(portfolio):
+
+    state = {
+        "capital": portfolio.capital,
+        "positions": portfolio.positions
+    }
+
+    with open(STATE_FILE,"w") as f:
+        json.dump(state,f)
+
+def load_state(portfolio):
+
+    if not os.path.exists(STATE_FILE):
+        return
+
+    with open(STATE_FILE) as f:
+
+        state = json.load(f)
+
+        portfolio.capital = state["capital"]
+        portfolio.positions = state["positions"]
 
 ############################
 # LOGGING
@@ -226,31 +232,34 @@ class Portfolio:
 
 def save_logs(portfolio):
 
+    if len(portfolio.trade_log) == 0:
+        return
+
     df = pd.DataFrame(portfolio.trade_log)
 
-    df.to_csv("run_log.csv", index=False)
+    df.to_csv(
+        TRADES_FILE,
+        mode="a",
+        header=not os.path.exists(TRADES_FILE),
+        index=False
+    )
 
-    if len(df) == 0:
-        return
+    portfolio.trade_log = []
+
+    full = pd.read_csv(TRADES_FILE)
 
     report = {}
 
-    report["trades"] = len(df)
-    report["winrate"] = (df.pnl>0).mean()
-    report["avg_mae"] = df.mae.mean()
-    report["avg_mfe"] = df.mfe.mean()
+    report["trades"] = len(full)
+    report["winrate"] = (full.pnl>0).mean()
+    report["avg_mae"] = full.mae.mean()
+    report["avg_mfe"] = full.mfe.mean()
+    report["pnl_total"] = full.pnl.sum()
 
-    hours = df.close.dt.hour.value_counts()
-
-    with open("metrics_report.txt","w") as f:
+    with open(METRICS_FILE,"w") as f:
 
         for k,v in report.items():
             f.write(f"{k}: {v}\n")
-
-        f.write("\nTrades by hour\n")
-
-        f.write(hours.to_string())
-
 
 ############################
 # MAIN LOOP
@@ -264,7 +273,9 @@ def main():
 
     portfolio = Portfolio(strategies)
 
-    print("Starting research bot")
+    load_state(portfolio)
+
+    print("starting bot")
 
     while True:
 
@@ -296,12 +307,13 @@ def main():
                 if all(seq==-1):
                     portfolio.open(symbol,-1,last.c,s["tp"],s["sl"])
 
-        print("capital", portfolio.capital)
+        print("capital",portfolio.capital)
 
         save_logs(portfolio)
 
-        time.sleep(LOOP_INTERVAL)
+        save_state(portfolio)
 
+        time.sleep(LOOP_INTERVAL)
 
 if __name__ == "__main__":
     main()
