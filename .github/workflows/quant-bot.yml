@@ -3,35 +3,38 @@ name: Quant Bot Simulation
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/30 * * * *"  # Ejecuta cada 30 minutos
 
 jobs:
   run-bot:
-
     runs-on: ubuntu-latest
 
     steps:
-
+      # 1️⃣ Clonar repositorio
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Configurar Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
+      # 3️⃣ Instalar dependencias
       - name: Install dependencies
         run: |
-          pip install -r quant-bot-actions/requirements.txt
+          pip install -r quant-bot-actions/quant_bot/requirements.txt
 
+      # 4️⃣ Ejecutar bot
       - name: Run bot
-        working-directory: quant-bot-actions
+        working-directory: quant-bot-actions/quant_bot
         run: |
           python -m quant_bot.main
 
+      # 5️⃣ Subir reportes acumulativos
       - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
           name: quant-bot-reports
-          path: quant-bot-actions/runtime/
+          path: quant-bot-actions/quant_bot/reports/
