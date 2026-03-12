@@ -1,7 +1,6 @@
 import ccxt
 import pandas as pd
 import numpy as np
-import time
 import re
 import json
 import os
@@ -22,45 +21,54 @@ STATE_FILE = "portfolio_state.json"
 TRADES_FILE = "trades_log.csv"
 METRICS_FILE = "metrics_report.txt"
 
-UNIVERSE = "TOP3"
-
-LOOP_INTERVAL = 60
-
 ############################
 # LOAD STRATEGIES
 ############################
 
 def load_strategies(report_file):
 
+    if not os.path.exists(report_file):
+
+        print("quant_research_report.txt not found → using fallback")
+
+        return [
+            {"symbol":"BTC/USDT","timeframe":"1m","accum":3,"tp":0.005,"sl":0.01},
+            {"symbol":"ETH/USDT","timeframe":"1m","accum":3,"tp":0.005,"sl":0.01},
+            {"symbol":"SOL/USDT","timeframe":"1m","accum":3,"tp":0.005,"sl":0.01}
+        ]
+
     rows = []
 
     pattern = r'^([A-Z0-9/.-]+)\s+([1-3]m)\s+(\d+)\s+([0-9.]+)\s+([0-9.]+)\s+(\d+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)'
 
     with open(report_file) as f:
+
         for line in f:
 
-            m = re.match(pattern, line.strip())
+            m = re.match(pattern,line.strip())
 
             if m:
 
                 symbol, tf, accum, tp, sl, trades, winrate, pf, expectancy, sharpe, dd, cap, edge = m.groups()
 
                 rows.append({
-                    "symbol": symbol,
-                    "timeframe": tf,
-                    "accum": int(accum),
-                    "tp": float(tp),
-                    "sl": float(sl),
-                    "trades": int(trades),
-                    "pf": float(pf),
-                    "edge": float(edge)
+                    "symbol":symbol,
+                    "timeframe":tf,
+                    "accum":int(accum),
+                    "tp":float(tp),
+                    "sl":float(sl),
+                    "trades":int(trades),
+                    "pf":float(pf),
+                    "edge":float(edge)
                 })
 
     df = pd.DataFrame(rows)
 
-    df = df[(df.trades > 30) & (df.pf > 1.1)]
+    if len(df) == 0:
+        return []
 
-    df = df.sort_values("edge", ascending=False)
+    df = df[(df.trades>30) & (df.pf>1.1)]
+    df = df.sort_values("edge",ascending=False)
 
     return df.head(20).to_dict("records")
 
@@ -72,19 +80,27 @@ class Scanner:
 
     def __init__(self):
 
-        self.exchange = ccxt.kucoin({'enableRateLimit': True})
+        self.exchange = ccxt.kucoin({"enableRateLimit":True})
 
-    def fetch(self, symbol):
+    def fetch(self,symbol):
 
-        data = self.exchange.fetch_ohlcv(symbol, "1m", limit=LOOKBACK)
+        try:
 
-        df = pd.DataFrame(data, columns=["ts","o","h","l","c","v"])
+            data = self.exchange.fetch_ohlcv(symbol,"1m",limit=LOOKBACK)
 
-        df["ts"] = pd.to_datetime(df["ts"], unit="ms")
+        except Exception as e:
+
+            print("fetch error",symbol,e)
+
+            return None
+
+        df = pd.DataFrame(data,columns=["ts","o","h","l","c","v"])
+
+        df["ts"] = pd.to_datetime(df["ts"],unit="ms")
 
         return df
 
-    def aggregate(self, df, tf):
+    def aggregate(self,df,tf):
 
         if tf == "1m":
             return df
@@ -104,7 +120,7 @@ class Scanner:
 
         return agg
 
-    def compute(self, df):
+    def compute(self,df):
 
         df["ema"] = df["c"].ewm(span=EMA_PERIOD).mean()
 
@@ -133,7 +149,7 @@ class Scanner:
 
 class Portfolio:
 
-    def __init__(self, strategies):
+    def __init__(self,strategies):
 
         self.capital = INITIAL_CAPITAL
         self.positions = {}
@@ -144,7 +160,7 @@ class Portfolio:
 
         return self.capital / max(len(self.strategies),1)
 
-    def open(self, symbol, side, price, tp, sl):
+    def open(self,symbol,side,price,tp,sl):
 
         if symbol in self.positions:
             return
@@ -152,17 +168,17 @@ class Portfolio:
         size = self.size()
 
         self.positions[symbol] = {
-            "side": side,
-            "entry": price,
-            "size": size,
-            "tp": price*(1+tp) if side==1 else price*(1-tp),
-            "sl": price*(1-sl) if side==1 else price*(1+sl),
-            "open": datetime.utcnow().isoformat(),
+            "side":side,
+            "entry":price,
+            "size":size,
+            "tp":price*(1+tp) if side==1 else price*(1-tp),
+            "sl":price*(1-sl) if side==1 else price*(1+sl),
+            "open":datetime.utcnow().isoformat(),
             "mae":0,
             "mfe":0
         }
 
-    def update(self, symbol, price):
+    def update(self,symbol,price):
 
         if symbol not in self.positions:
             return
@@ -176,8 +192,8 @@ class Portfolio:
         if p["side"] == -1:
             move *= -1
 
-        p["mfe"] = max(p["mfe"], move)
-        p["mae"] = min(p["mae"], move)
+        p["mfe"] = max(p["mfe"],move)
+        p["mae"] = min(p["mae"],move)
 
         if price >= p["tp"] or price <= p["sl"]:
 
@@ -201,14 +217,14 @@ class Portfolio:
             del self.positions[symbol]
 
 ############################
-# STATE PERSISTENCE
+# STATE
 ############################
 
 def save_state(portfolio):
 
     state = {
-        "capital": portfolio.capital,
-        "positions": portfolio.positions
+        "capital":portfolio.capital,
+        "positions":portfolio.positions
     }
 
     with open(STATE_FILE,"w") as f:
@@ -248,13 +264,13 @@ def save_logs(portfolio):
 
     full = pd.read_csv(TRADES_FILE)
 
-    report = {}
-
-    report["trades"] = len(full)
-    report["winrate"] = (full.pnl>0).mean()
-    report["avg_mae"] = full.mae.mean()
-    report["avg_mfe"] = full.mfe.mean()
-    report["pnl_total"] = full.pnl.sum()
+    report = {
+        "trades":len(full),
+        "winrate":(full.pnl>0).mean(),
+        "avg_mae":full.mae.mean(),
+        "avg_mfe":full.mfe.mean(),
+        "pnl_total":full.pnl.sum()
+    }
 
     with open(METRICS_FILE,"w") as f:
 
@@ -262,12 +278,16 @@ def save_logs(portfolio):
             f.write(f"{k}: {v}\n")
 
 ############################
-# MAIN LOOP
+# MAIN (ONE CYCLE)
 ############################
 
 def main():
 
     strategies = load_strategies(REPORT_FILE)
+
+    if len(strategies) == 0:
+        print("no strategies available")
+        return
 
     scanner = Scanner()
 
@@ -275,45 +295,44 @@ def main():
 
     load_state(portfolio)
 
-    print("starting bot")
+    print("starting cycle")
 
-    while True:
+    for s in strategies:
 
-        for s in strategies:
+        symbol = s["symbol"]
 
-            symbol = s["symbol"]
+        df = scanner.fetch(symbol)
 
-            df = scanner.fetch(symbol)
+        if df is None:
+            continue
 
-            df = scanner.aggregate(df, s["timeframe"])
+        df = scanner.aggregate(df,s["timeframe"])
 
-            df = scanner.compute(df)
+        df = scanner.compute(df)
 
-            last = df.iloc[-1]
+        last = df.iloc[-1]
 
-            portfolio.update(symbol, last.c)
+        portfolio.update(symbol,last.c)
 
-            signals = df.signal.values
+        signals = df.signal.values
 
-            accum = s["accum"]
+        accum = s["accum"]
 
-            if len(signals) >= accum:
+        if len(signals) >= accum:
 
-                seq = signals[-accum:]
+            seq = signals[-accum:]
 
-                if all(seq==1):
-                    portfolio.open(symbol,1,last.c,s["tp"],s["sl"])
+            if all(seq==1):
+                portfolio.open(symbol,1,last.c,s["tp"],s["sl"])
 
-                if all(seq==-1):
-                    portfolio.open(symbol,-1,last.c,s["tp"],s["sl"])
+            if all(seq==-1):
+                portfolio.open(symbol,-1,last.c,s["tp"],s["sl"])
 
-        print("capital",portfolio.capital)
+    print("capital",portfolio.capital)
 
-        save_logs(portfolio)
+    save_logs(portfolio)
 
-        save_state(portfolio)
-
-        time.sleep(LOOP_INTERVAL)
+    save_state(portfolio)
 
 if __name__ == "__main__":
     main()
