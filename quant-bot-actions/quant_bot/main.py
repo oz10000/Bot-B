@@ -1,7 +1,7 @@
 import time
 import os
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from quant_bot.config import INITIAL_CAPITAL, LOOP_INTERVAL, REPORT_FILE, DATA_DIR, CYCLES, TRADES_FILE, METRICS_FILE
 from quant_bot.strategy_loader import load_strategies
@@ -33,6 +33,9 @@ def main():
     engine = SignalEngine()
     portfolio = Portfolio(INITIAL_CAPITAL, strategies)
 
+    # 🔹 Inicializar temporizador de reportes
+    last_report_time = datetime.utcnow()
+
     for _ in range(CYCLES):
         data.fetch_all()
 
@@ -54,10 +57,13 @@ def main():
         # 🔹 Guardar trades log actualizado
         save_logs(portfolio)
 
-        # 🔹 Guardar reportes con timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_file_ts = f"reports/report_{timestamp}.txt"
-        build_reports(output_file=report_file_ts)
+        # 🔹 Guardar reportes cada 5 minutos
+        now = datetime.utcnow()
+        if now - last_report_time >= timedelta(minutes=5):
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            report_file_ts = f"reports/report_{timestamp}.txt"
+            build_reports(output_file=report_file_ts)
+            last_report_time = now
 
         # 🔹 Esperar LOOP_INTERVAL
         time.sleep(LOOP_INTERVAL)
