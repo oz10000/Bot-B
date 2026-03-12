@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+
   run-bot:
 
     runs-on: ubuntu-latest
@@ -29,13 +30,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install ccxt pandas numpy
 
       - name: Run research bot
         run: |
           python trading_research_bot.py
 
-      - name: Commit updated simulation state
+      - name: Commit updated state
         run: |
           git config --global user.name "research-bot"
           git config --global user.email "bot@users.noreply.github.com"
