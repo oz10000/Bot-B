@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "*/5 * * * *"
 
+permissions:
+  contents: write
+
 concurrency:
   group: research-bot
   cancel-in-progress: true
@@ -20,6 +23,9 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -41,6 +47,10 @@ jobs:
           git config --global user.name "research-bot"
           git config --global user.email "bot@users.noreply.github.com"
 
-          git add portfolio_state.json trades_log.csv metrics_report.txt || true
-          git commit -m "update simulation state" || echo "no changes"
-          git push
+          git add -A
+
+          git commit -m "research update $(date -u '+%Y-%m-%d %H:%M:%S')" || echo "no changes"
+
+          git pull --rebase origin main
+
+          git push origin main
