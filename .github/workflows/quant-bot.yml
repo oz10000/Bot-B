@@ -26,9 +26,9 @@ jobs:
         run: |
           pip install -r quant-bot-actions/quant_bot/requirements.txt
 
-      # 4️⃣ Ejecutar bot
+      # 4️⃣ Ejecutar bot desde la carpeta padre de quant_bot
       - name: Run bot
-        working-directory: quant-bot-actions/quant_bot
+        working-directory: quant-bot-actions
         run: |
           python -m quant_bot.main
 
